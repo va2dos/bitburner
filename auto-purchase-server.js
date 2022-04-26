@@ -1,25 +1,79 @@
-/** @param {NS} ns */
-export async function main(ns) {
-	let ram = 8;
-	let i = 24;
+import {
+	sendEvent,
+	eventPorts
+} from "lib.events.js";
 
-	let cc = ns.getServerMoneyAvailable("home");
-	let serverCost = ns.getPurchasedServerCost(ram);
-	ns.tprint(`Next server cost: ${serverCost} : ${cc}`);
+/**
+ * @param {NS} ns 
+ * **/
+ export async function main(ns) {
+	ns.disableLog("ALL");
+	ns.clearLog();
 
-	while (i <= ns.getPurchasedServerLimit()) {
-		if (cc > serverCost) {
-			ns.tprint(`PurchaseServer: ${i}, Ram: ${ram} > "pserv-${i}"`);
-			var hostname = ns.purchaseServer("pserv-" + i, ram);
-			await ns.scp("bhack-sigma.js", hostname);
-			ns.exec("bhack-sigma.js", hostname, 3);
-			++i;
-			serverCost = ns.getPurchasedServerCost(ram);
-		    cc = ns.getServerMoneyAvailable("home");
-			ns.tprint(`Next server cost: ${serverCost} : ${cc}`);
-		}
+	const homeServ = "home";
+	var pRam = 8; // purchased ram
+	const servPrefix = "pserv-";
+	const RESERVE_FACTOR = 0.2; // 20% to Server purchase
 
-		await ns.sleep(1000);
-		cc = ns.getServerMoneyAvailable("home");
+	var maxRam = ns.getPurchasedServerMaxRam();
+	var maxServers = ns.getPurchasedServerLimit();
+
+	function canPurchaseServer() {
+		return (ns.getServerMoneyAvailable(homeServ) * RESERVE_FACTOR) > ns.getPurchasedServerCost(pRam);
 	}
+
+	async function upgradeServer(server) {
+		var sRam = ns.getServerMaxRam(server);
+		if (sRam < pRam) {
+			while (!canPurchaseServer()) {
+				await ns.sleep(10000); // wait 10s
+			}
+			ns.killall(server);
+			ns.deleteServer(server);
+			ns.purchaseServer(server, pRam);
+			sendEvent(ns, eventPorts.NEWTARGET, 'new-upgrade', {host : server});
+		}
+	}
+
+	async function purchaseServer(server) {
+		while (!canPurchaseServer()) {
+			await ns.sleep(10000); // wait 10s
+		}
+		ns.purchaseServer(server, pRam);
+		sendEvent(ns, eventPorts.NEWTARGET, 'new-purchase', {host : server});
+	}
+
+	async function autoUpgradeServers() {
+		var i = 0;
+		while (i < maxServers) {
+			const cost = ns.getPurchasedServerCost(pRam);
+			var server = servPrefix + i;
+			if (ns.serverExists(server)) {
+				ns.print(`Upgrading server ${server} to ${pRam} GB @ ${ns.nFormat(cost,'$0.0a')}`);
+				await upgradeServer(server);
+				++i;
+			} else {
+				ns.print(`Purchasing server ${server} to ${pRam} GB @ ${ns.nFormat(cost,'$0.0a')}`);
+				await purchaseServer(server, pRam);
+				++i;
+			}
+		}
+	}
+
+	// await autoUpgradeServers();
+	while (true) {
+		await autoUpgradeServers();
+		ns.tprintf("SUCCESS Upgraded all servers to " + pRam + "GB");
+		if (pRam === maxRam) {
+			break;
+		}
+		// move up to next tier
+		var newRam = pRam * 2;
+		if (newRam > maxRam) {
+			pRam = maxRam;
+		} else {
+			pRam = newRam;
+		}
+	}
+	
 }

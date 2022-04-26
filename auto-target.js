@@ -8,41 +8,47 @@ import {
 } from "lib.deploy.js";
 
 import {
-	get_high_score
-} from "lib.target.js";
+	eventPorts,
+	takeEvent
+} from "lib.events.js";
 
-const SLEEP_PERIOD = 15 * 1000;
 
-// https://github.com/chrisrabe/bitburner-automation/blob/main/_stable/auto-starter.js
+const SLEEP_PERIOD = 1000;
 
 /** @param {NS} ns */
 export async function main(ns) {
 	ns.disableLog("ALL");
+	ns.clearLog();
 
-	if (ns.args.length != 1) {
-		ns.tprint(`Usage: run ${ns.getScriptName()} SCRIPT `);
-		ns.tprint(`> run ${ns.getScriptName()} bhack.js`);
+	if (ns.args.length != 2) {
+		ns.tprint(`Usage: run ${ns.getScriptName()} SCRIPT TARGET`);
+		ns.tprint(`> run ${ns.getScriptName()} bhack.js n00dles`);
 		return;
 	}
 
+	const targetChanged = true;
 	const HACK_SCRIPT = ns.args[0];
-	ns.tprint(`Auto Targeting script '${HACK_SCRIPT}' on all servers`);
+	let HACK_TARGET = ns.args[1];
+	ns.print(`running '${HACK_SCRIPT}' '${HACK_TARGET}' on all servers`);
 
-	let serverCount = 0;
-	let targetHost = null;
-	let targetScore = null;
+	const serverList = flat_server_map(ns).filter((host) => can_deploy(ns, host, HACK_SCRIPT));
 
 	while (true) {
-		let serverList = flat_server_map(ns).filter((host) => can_deploy(ns, host, HACK_SCRIPT));
-		let bestTarget = get_high_score(ns, serverList, false);
+		if (targetChanged) {
+			await deploy_hack(ns, serverList, HACK_TARGET, HACK_SCRIPT);
+			targetChanged = false;
+		}
 
-		if (bestTarget.highscore > targetScore || serverCount < serverList.length) {
-			targetHost = bestTarget.besthost;
-			targetScore = bestTarget.highscore;
-			serverCount = serverList.length;
-
-			await deploy_hack(ns, serverList, targetHost, HACK_SCRIPT);
-			ns.tprint(`Target Updated! '${targetHost}' on all servers (${serverCount}) with score ${targetScore}`);
+		const event = takeEvent(ns, eventPorts.NEWTARGET);
+		if (event !== false) {
+			if (event.event = 'new-target') {
+				HACK_TARGET = event.data.target;
+				targetChanged = true;
+			}
+			else {
+				await deploy_hack(ns, [event.data.host], HACK_TARGET, HACK_SCRIPT);
+				ns.print(`deploying '${HACK_SCRIPT}' '${HACK_TARGET}' on ${event.data.host}`);
+			}
 		}
 
 		await ns.sleep(SLEEP_PERIOD);

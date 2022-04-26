@@ -28,7 +28,7 @@ export const server_map = async function (ns) {
 };
 
 export const flat_server_map = function (ns) {
-	ns.print("Retrieving all nodes in the network");
+	//ns.print("Retrieving all nodes in the network");
 	var visited = {};
 	var stack = [];
 	var origin = ns.getHostname();
@@ -49,6 +49,7 @@ export const flat_server_map = function (ns) {
 		}
 	}
 	const hosts = Object.keys(visited);
-	ns.print(`${hosts.lenght} nodes in the network`);
-	return Object.keys(visited);
+	// const hostCount = hosts.length;
+	//ns.print(`${hostCount} nodes in the network`);
+	return hosts;
 }

@@ -3,12 +3,14 @@ import {
 } from "lib.discovery.js";
 
 import {
-	get_high_score
+	getPotentialTargets
 } from "lib.target.js";
 
 /** @param {NS} ns */
 export function main(ns) {
-	let serverList = flat_server_map(ns);
-	let best = get_high_score(ns, serverList, true);
-	ns.tprint(`Best Hosts '${best.besthost}'  Score:${best.highscore}`);
+	const serverList = flat_server_map(ns);
+	const bests = getPotentialTargets(ns, serverList);
+	const node = JSON.stringify(bests[0]);
+	ns.tprint(`** ${bests[0].server.hostname} **`);
+	ns.tprint(`${node}'\n`);
 }

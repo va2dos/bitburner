@@ -1,29 +1,90 @@
 import {
-	can_hack
+	canHack,
+	canPenetrate,
+	crack_server
 } from "lib.crack.js";
 
+export const getPotentialTargets = function (ns, serverList) {
+	const validServer = serverList.filter(
+		server => {
+			return canHack(ns, server)
+				&& canPenetrate(ns, server)
+				&& !server.includes("pserv")
+		}
+	);
 
-/** @param {NS} ns **/
-export const get_high_score = function (ns, serverList, verbose) {
-	const validServer = serverList.filter((x) => ns.hasRootAccess(x));
-	const nbrCores = validServer.length;
-	let nbrThreads = 0;
-	validServer.forEach(function (x) {
-		nbrThreads += ns.getServerMaxRam(x)
+	const servers = [];
+	// Prepare the servers to have root access
+	for (var target of validServer) {
+		crack_server(ns, target);
+
+		const server = getServerInfo(ns, target);
+		if (server.maxMoney > 0)
+			servers.push(server);
+	}
+
+	servers.sort(function (a, b) {
+		return b.revYield - a.revYield; // DESC
 	});
 
-	if (verbose)
-		ns.tprint(`nbrThreads:${nbrThreads}  nbrCores:${nbrCores}`);
+	return servers;
+}
+
+export const getServerInfo = function (ns, hostname) {
+	const maxMoney = ns.getServerMaxMoney(hostname);
+	const curMoney = ns.getServerMoneyAvailable(hostname);
+	const reqHackLevel = ns.getServerRequiredHackingLevel(hostname);
+	const security = ns.getServerSecurityLevel(hostname);
+	const minSecurity = ns.getServerMinSecurityLevel(hostname);
+	const moneyThresh = maxMoney * 0.80;
+	const secThresh = minSecurity + 5;
+	const reqPorts = ns.getServerNumPortsRequired(hostname);
+	const hasRoot = ns.hasRootAccess(hostname);
+	const maxRam = ns.getServerMaxRam(hostname);
+	const server = ns.getServer(hostname);
+	const player = ns.getPlayer();
+	const hackChance = ns.formulas.hacking.hackChance(server, player);
+	const revYield = maxMoney * hackChance;
+	//const strategy = getStrategy(ns, hostname);
+
+	return {
+		hostname,
+		server,
+		maxMoney,
+		maxRam,
+		curMoney,
+		reqHackLevel,
+		security,
+		minSecurity,
+		secThresh,
+		moneyThresh,
+		reqPorts,
+		hasRoot,
+		hackChance,
+		revYield
+	};
+}
+
+/* LEGACY SCORE SYSTEM */
+
+export const get_high_score = function (ns, serverList, verbose) { 
+	const validServer = serverList.filter(
+		server => {
+			return canHack(ns, server)
+				&& canPenetrate(ns, server)
+				&& !server.includes("pserv")
+		}
+	);
 
 	let highscore = 0;
 	let besthost = null;
 
-	for (var i = 0; i < serverList.length; i++) {
-		const node = serverList[i];
-		const c = get_score(ns, node, verbose, nbrCores, nbrThreads);
-		if (c > highscore) {
-			besthost = node;
-			highscore = c;
+	for (let target of validServer) {
+		crack_server(ns, target);
+		const score = get_score(ns, target, verbose);
+		if (score > highscore) {
+			besthost = target;
+			highscore = score;
 		}
 	}
 
@@ -31,56 +92,21 @@ export const get_high_score = function (ns, serverList, verbose) {
 }
 
 /** @param {NS} ns **/
-export function get_score(ns, server, verbose, nbrCores, nbrThreads) {
+export function get_score(ns, server, verbose) {
 	if (server == "home")
 		return 0;
-
-	const isRoot = ns.hasRootAccess(server);
-	if (!isRoot && !can_hack(ns, server, 1000)) {
-		return -1;
-	}
-
-	const float_skill_hack = ns.getHackingLevel();
-	const reqHack = ns.getServerRequiredHackingLevel(server);
-	if (float_skill_hack < reqHack)
-		return -1;
 
 	const srvMoney = ns.getServerMaxMoney(server);
 	if (srvMoney < 1)
 		return -2;
 
-	// v1
-	if (false) {
-		const secLevel = ns.getServerMinSecurityLevel(server);
-		const srvMoney = ns.getServerMaxMoney(server);
-		const srvGrowth = ns.getServerGrowth(server);
-		const srvDifficutly = (float_skill_hack - reqHack) / float_skill_hack;
-		const scores = [srvMoney, srvGrowth, srvDifficutly];
-		const n = scores.length;
-		const mean = scores.reduce((a, b) => a + b) / n;
-		const dev = Math.sqrt(scores.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n) * (secLevel / 100);
+	// Money per seconds
+	const sucessRate = (100 - ns.getServerMinSecurityLevel(server)) / 100;
 
-		if (verbose)
-			ns.tprint(`Server '${server}'  srvMoney:${srvMoney}  srvGrowth:${srvGrowth}  srvDifficutly:${srvDifficutly}  score:${dev}`);
-		return dev;
-	}
-
-	//Calculate Growth Efficiency.
-	const srvGrowthTime = ns.getGrowTime(server);
-	const srvGrowthEff = ns.growthAnalyze(server, (srvMoney / 20), nbrCores) / srvGrowthTime;
-
-	//Calculate Security Efficiency.
-	const srvWeakenTime = ns.getWeakenTime(server);
-	const srvSecEff = ns.growthAnalyzeSecurity(nbrThreads, server, nbrCores) / srvWeakenTime;
-
-	//Hack Efficiency rate
-	const moneyEff = srvMoney / ns.getHackTime(server);
-	const sucessRate = (100 - ns.getServerMinSecurityLevel(server));
-
-	const score = (srvGrowthEff * srvSecEff * sucessRate * moneyEff);
+	const score = (srvMoney * sucessRate);
 
 	if (verbose)
-		ns.tprint(`[${server}] srvGrowthEff:${srvGrowthEff}  srvSecEff:${srvSecEff}  sucessRate:${sucessRate}  srvMoney:${srvMoney}  score:${score}`);
+		ns.print(`[${server}] sucessRate:${sucessRate}  moneyEff:${moneyEff} score:${score}`);
 
 	return score;
 }

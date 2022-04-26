@@ -1,6 +1,5 @@
 import {
-	can_hack,
-	crack_server
+	can_hack
 } from "lib.crack.js";
 
 /** @param {NS} ns **/
@@ -30,21 +29,17 @@ export const copy_and_run_script = async function (ns, server, target, virus) {
 	if (!can_deploy(ns, server, virus))
 		return -1;
 
-	const isRoot = ns.hasRootAccess(server);
 	const virusRam = ns.getScriptRam(virus);
 	const threads = Math.floor(ns.getServerMaxRam(server) / virusRam);
-	ns.tprint(`Launching script '${virus}' on server '${server}' with ${threads} threads and the following arguments: ${target}`);
+
+	if(threads < 1) {
+		ns.tprint(`ERROR Trying to launching script '${virus}' on server '${server}' with ${threads} threads! on ${target}`);
+		return -1;
+	}
+
+	ns.print(`Launching script '${virus}' on server '${server}' with ${threads} threads and the following arguments: ${target}`);
 
 	await ns.scp(virus, ns.getHostname(), server);
-
-	if (!isRoot) {
-		var requiredPorts = ns.getServerNumPortsRequired(server);
-		if (requiredPorts > 0) {
-			crack_server(ns, server);
-		}
-		ns.print("Gaining root access on " + server);
-		ns.nuke(server);
-	}
 
 	if (ns.scriptRunning(virus, server)) {
 		ns.scriptKill(virus, server);
